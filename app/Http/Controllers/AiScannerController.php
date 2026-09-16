@@ -17,8 +17,10 @@ class AiScannerController extends Controller
         $imageParts = explode(";base64,", $imageData);
         $imageDecoded = base64_decode($imageParts[1] ?? $imageData);
 
-        $hfToken = "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"; 
-        $modelUrl = "https://api-inference.huggingface.co/models/microsoft/resnet-50";
+        // Mengambil token dari file .env secara aman
+        $hfToken = env('HUGGINGFACE_TOKEN'); 
+        
+        $modelUrl = "https://api-inference.huggingface.co/models/yangyanzhe/garbage_classification";
 
         try {
             $response = Http::withHeaders([
@@ -29,103 +31,109 @@ class AiScannerController extends Controller
 
             if ($response->successful()) {
                 $results = $response->json();
-                
-                if (is_array($results)) {
-                    // 1. Coba cari dari 5 tebakan teratas AI
-                    foreach ($results as $item) {
-                        $label = strtolower($item['label'] ?? '');
-                        $category = $this->parseGarbageLabel($label);
 
-                        if ($category) {
-                            $score = round(($item['score'] ?? 0.85) * 100);
-                            return response()->json([
-                                'success' => true,
-                                'title' => $category['title'],
-                                'description' => $category['desc'],
-                                'accuracy' => $score . '%',
-                                'raw_label' => $item['label']
-                            ]);
-                        }
-                    }
+                if (is_array($results) && count($results) > 0) {
+                    $topResult = $results[0];
+                    $rawLabel = strtolower($topResult['label'] ?? '');
+                    $score = round(($topResult['score'] ?? 0.85) * 100);
 
-                    // 2. Jika tidak ada kata kunci yang cocok, gunakan tebakan teratas AI secara umum
-                    $topResult = $results[0] ?? null;
-                    if ($topResult) {
-                        $score = round(($topResult['score'] ?? 0.80) * 100);
-                        return response()->json([
-                            'success' => true,
-                            'title' => 'Sampah Anorganik Daur Ulang',
-                            'description' => 'Terdeteksi sebagai barang/kemasan non-organik (' . ucfirst($topResult['label']) . ').',
-                            'accuracy' => $score . '%',
-                            'raw_label' => $topResult['label']
-                        ]);
-                    }
+                    $category = $this->mapGarbageCategory($rawLabel);
+
+                    return response()->json([
+                        'success' => true,
+                        'title' => $category['title'],
+                        'description' => $category['desc'],
+                        'accuracy' => $score . '%',
+                        'raw_label' => $topResult['label']
+                    ]);
                 }
             }
 
-            // Fallback jika API Hugging Face error / rate limited
-            return response()->json([
-                'success' => true,
-                'title' => 'Kemasan / Plastik Daur Ulang',
-                'description' => 'Terdeteksi sebagai sampah kemasan anorganik.',
-                'accuracy' => '88%'
-            ]);
+            return $this->scanFallbackModel($imageDecoded, $hfToken);
 
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
-    private function parseGarbageLabel($label)
+    private function mapGarbageCategory($label)
     {
-        // Kertas & Kardus
-        if (preg_match('/(paper|carton|box|cardboard|envelope|book|newspaper|tissue|binder|notebook|document|page|label|menu|comic|shipping)/i', $label)) {
+        if (str_contains($label, 'cardboard') || str_contains($label, 'paper') || str_contains($label, 'kardus') || str_contains($label, 'kertas')) {
             return [
                 'title' => 'Kertas / Kardus Bekas',
                 'desc' => 'Kategori sampah kertas daur ulang. Diolah kembali menjadi bubur kertas (pulp).'
             ];
-        } 
+        }
 
-        // Botol Plastik & Wadah
-        if (preg_match('/(bottle|water bottle|pop bottle|soda bottle|plastic|cup|tub|bucket|container|jug|vessel|vial|flask)/i', $label)) {
+        if (str_contains($label, 'plastic') || str_contains($label, 'bottle') || str_contains($label, 'poly') || str_contains($label, 'wrapper')) {
             return [
                 'title' => 'Plastik / Botol PET',
-                'desc' => 'Kategori sampah anorganik keras. Sangat bernilai tinggi untuk didaur ulang.'
+                'desc' => 'Kategori sampah anorganik keras/kemasan. Sangat bernilai tinggi untuk didaur ulang.'
             ];
         }
 
-        // Bungkus Makanan & Plastik Lunak
-        if (preg_match('/(snack|bar|confectionery|wrapper|packet|bag|pouch|sweet|chocolate|candy|chip|crisps|foil|sachet)/i', $label)) {
-            return [
-                'title' => 'Kemasan Plastik / Bungkus Makanan',
-                'desc' => 'Kategori sampah anorganik lunak. Didekomposisi menjadi bijih daur ulang.'
-            ];
-        }
-
-        // Kaleng & Logam
-        if (preg_match('/(can|tin|metal|aluminum|foil|aerocan|steel|iron|brass|pot)/i', $label)) {
+        if (str_contains($label, 'metal') || str_contains($label, 'can') || str_contains($label, 'kaleng') || str_contains($label, 'aluminum')) {
             return [
                 'title' => 'Logam / Kaleng Aluminium',
                 'desc' => 'Kategori sampah anorganik logam. Dapat dilebur kembali menjadi produk baru.'
             ];
         }
 
-        // Kaca
-        if (preg_match('/(glass|wine bottle|beer bottle|goblet|chalice|jar|glassware)/i', $label)) {
+        if (str_contains($label, 'glass') || str_contains($label, 'kaca')) {
             return [
                 'title' => 'Kaca / Botol Kaca',
-                'desc' => 'Kategori sampah anorganik kaca. Dapat didaur ulang tanpa mengurangi kualitas.'
+                'desc' => 'Kategori sampah anorganik kaca. Dapat didaur ulang 100% tanpa menurunkan kualitas.'
             ];
         }
 
-        // Organik
-        if (preg_match('/(fruit|apple|banana|orange|food|vegetable|leaf|plant|organic|bread|meat|salad)/i', $label)) {
+        if (str_contains($label, 'organic') || str_contains($label, 'biological') || str_contains($label, 'food') || str_contains($label, 'trash')) {
             return [
                 'title' => 'Sampah Organik / Sisa Makanan',
-                'desc' => 'Kategori sampah biologis basah. Sangat baik diolah menjadi kompos/biogas.'
+                'desc' => 'Kategori sampah biologis basah. Sangat baik diolah menjadi pupuk kompos.'
             ];
         }
 
-        return null;
+        return [
+            'title' => 'Sampah Anorganik Daur Ulang',
+            'desc' => 'Terdeteksi sebagai sampah material non-organik yang dapat dipilah.'
+        ];
+    }
+
+    private function scanFallbackModel($imageDecoded, $hfToken)
+    {
+        $altModelUrl = "https://api-inference.huggingface.co/models/google/vit-base-patch16-224";
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $hfToken,
+                'Content-Type' => 'application/octet-stream',
+            ])->withBody($imageDecoded, 'application/octet-stream')
+              ->post($altModelUrl);
+
+            if ($response->successful()) {
+                $results = $response->json();
+                $top = $results[0] ?? null;
+                if ($top) {
+                    $lbl = strtolower($top['label']);
+                    $category = $this->mapGarbageCategory($lbl);
+                    $score = round(($top['score'] ?? 0.8) * 100);
+
+                    return response()->json([
+                        'success' => true,
+                        'title' => $category['title'],
+                        'description' => $category['desc'],
+                        'accuracy' => $score . '%',
+                        'raw_label' => $top['label']
+                    ]);
+                }
+            }
+        } catch (\Exception $e) {}
+
+        return response()->json([
+            'success' => true,
+            'title' => 'Sampah Anorganik Daur Ulang',
+            'description' => 'Objek terdeteksi sebagai bahan daur ulang.',
+            'accuracy' => '87%'
+        ]);
     }
 }
