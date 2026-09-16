@@ -4,6 +4,7 @@ use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 use App\Http\Controllers\AiScannerController;
+use App\Http\Controllers\WasteScanController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -42,3 +43,4 @@ Route::get('/dashboard', function (Request $request) {
 })->middleware(['auth', 'verified'])->name('dashboard');
 require __DIR__.'/auth.php';
 Route::post('/api/scan-ai', [AiScannerController::class, 'scan'])->name('scan.ai');
+Route::post('/scan-waste', [WasteScanController::class, 'scanImage'])->name('scan.waste');

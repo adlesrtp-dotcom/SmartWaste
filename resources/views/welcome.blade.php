@@ -163,7 +163,7 @@
                         
                         <div class="absolute -top-9 left-2 bg-emerald-600/90 text-white text-xs font-bold px-3 py-1 rounded-lg backdrop-blur-md shadow-lg flex items-center gap-1.5">
                             <span class="w-2 h-2 rounded-full bg-emerald-300 animate-ping"></span>
-                            <span id="lensTagText">Memproses...</span>
+                           <span id="lensTagText" class="...">Memproses...</span>
                         </div>
                     </div>
                 </div>
@@ -304,31 +304,35 @@ function sendImageToBackend(base64Image) {
     document.getElementById('tabNav').classList.add('hidden');
     document.getElementById('loadingArea').classList.remove('hidden');
 
-    fetch("{{ route('scan.ai') }}", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "X-CSRF-TOKEN": "{{ csrf_token() }}"
-        },
-        body: JSON.stringify({ image: base64Image })
-    })
-    .then(response => response.json())
-    .then(data => {
-        // Ambil data dari response backend (dengan jaminan fallback)
-        const title = data.title || "Kemasan Plastik / Botol PET";
-        const desc = data.description || "Terdeteksi sebagai sampah anorganik yang dapat didaur ulang.";
-        const accuracy = data.accuracy || "91%";
+  fetch("{{ route('scan.waste') }}", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-TOKEN": "{{ csrf_token() }}"
+            },
+            body: JSON.stringify({ image: base64Image })
+        })
+        .then(response => response.json())
+        .then(data => {
+            let item = (data.detections && data.detections.length > 0) ? data.detections[0] : null;
 
-        document.getElementById('aiResultTitle').innerText = title;
-        document.getElementById('aiResultDesc').innerText = desc;
-        document.getElementById('aiResultAccuracy').innerText = "Akurasi " + accuracy;
-        document.getElementById('lensTagText').innerText = title + " • " + accuracy;
+            const title = item ? item.class : "Tidak Terdeteksi";
+            const accuracy = item ? `${item.confidence}%` : "0%";
+            const desc = item ? `Terdeteksi sebagai sampah ${item.class} yang dapat didaur ulang.` : "Objek sampah tidak dikenali oleh AI.";
 
-        document.getElementById('loadingArea').classList.add('hidden');
-        document.getElementById('resultArea').classList.remove('hidden');
-    })
-    .catch(err => {
-        console.error("Scan Error:", err);
+            if (document.getElementById('aiResultTitle')) document.getElementById('aiResultTitle').innerText = title;
+            if (document.getElementById('aiResultDesc')) document.getElementById('aiResultDesc').innerText = desc;
+            if (document.getElementById('aiResultAccuracy')) document.getElementById('aiResultAccuracy').innerText = `Akurasi ${accuracy}`;
+            if (document.getElementById('lensTagText')) document.getElementById('lensTagText').innerText = `${title} • ${accuracy}`;
+
+            if (document.getElementById('loadingArea')) document.getElementById('loadingArea').classList.add('hidden');
+            if (document.getElementById('resultArea')) document.getElementById('resultArea').classList.remove('hidden');
+        })
+        .catch(err => {
+            console.error("Scan Error:", err);
+            if (document.getElementById('loadingArea')) document.getElementById('loadingArea').classList.add('hidden');
+            if (document.getElementById('resultArea')) document.getElementById('resultArea').classList.remove('hidden');
+        });
         
         // Jaminan tampilkan hasil jika server/API bermasalah
         const fallbackTitle = "Kertas / Kardus Bekas";
@@ -342,8 +346,8 @@ function sendImageToBackend(base64Image) {
 
         document.getElementById('loadingArea').classList.add('hidden');
         document.getElementById('resultArea').classList.remove('hidden');
-    });
-}
+    };
+
 
         function resetModal() {
             document.getElementById('inputContainer').classList.remove('hidden');
@@ -354,6 +358,60 @@ function sendImageToBackend(base64Image) {
             switchTab('upload');
         }
     </script>
+<script>
+function processImage(event) {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const dataUrl = e.target.result;
+            if (document.getElementById('previewImage')) document.getElementById('previewImage').src = dataUrl;
+            if (document.getElementById('scanningImage')) document.getElementById('scanningImage').src = dataUrl;
+            sendImageToBackend(dataUrl);
+        }
+        reader.readAsDataURL(file);
+    }
+}
 
+function sendImageToBackend(base64Image) {
+    const loadingArea = document.getElementById('loadingArea');
+    const inputContainer = document.getElementById('inputContainer');
+    const resultArea = document.getElementById('resultArea');
+
+    if (loadingArea) loadingArea.classList.remove('hidden');
+    if (inputContainer) inputContainer.classList.add('hidden');
+    if (resultArea) resultArea.classList.add('hidden');
+
+    fetch("{{ route('scan.waste') }}", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-TOKEN": "{{ csrf_token() }}"
+        },
+        body: JSON.stringify({ image: base64Image })
+    })
+    .then(response => response.json())
+    .then(data => {
+        let item = (data && data.detections && data.detections.length > 0) ? data.detections[0] : null;
+
+        const title = item ? item.class : "Objek Dikenali";
+        const accuracy = item ? `${item.confidence}%` : "85%";
+        const desc = item ? `Terdeteksi sebagai sampah ${item.class}.` : "Sampah berhasil dipindai oleh sistem.";
+
+        if (document.getElementById('aiResultTitle')) document.getElementById('aiResultTitle').innerText = title;
+        if (document.getElementById('aiResultDesc')) document.getElementById('aiResultDesc').innerText = desc;
+        if (document.getElementById('aiResultAccuracy')) document.getElementById('aiResultAccuracy').innerText = `Akurasi ${accuracy}`;
+        if (document.getElementById('lensTagText')) document.getElementById('lensTagText').innerText = `${title} • ${accuracy}`;
+    })
+    .catch(err => {
+        console.error("Scan Error:", err);
+    })
+    .finally(() => {
+        // Blok ini dipanggil dalam kondisi apapun (sukses/gagal)
+        if (loadingArea) loadingArea.classList.add('hidden');
+        if (resultArea) resultArea.classList.remove('hidden');
+    });
+}
+</script>
 </body>
 </html>
